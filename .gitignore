@@ -1,0 +1,20 @@
+# Dépendances Node
+node_modules/
+
+# Wrangler
+.wrangler/
+.dev.vars
+
+# Variables d'environnement
+.env
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Fichiers Python (ancienne version, non utilisés)
+*.py
+__pycache__/
+requirements.txt
+venv/
