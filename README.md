@@ -16,14 +16,16 @@ Le bot interroge l'API GraphQL d'EVA.GG et retourne un embed Discord avec :
 
 | Champ | Détail |
 |---|---|
-| 🎮 Parties | Nombre total de parties |
-| 🏆 Victoires | Nombre + win rate |
-| 💀 Défaites | Nombre de défaites |
-| 🔫 Kills | Total de kills |
+| 🎮 Parties | Total · Victoires · Défaites · Nuls |
+| 🏆 Win Rate | Pourcentage de victoires + barre de progression |
+| ⏱️ Temps de jeu | Temps total en heures et minutes |
+| 🔫 Kills | Total d'éliminations |
 | ☠️ Morts | Total de morts |
 | 🤝 Assistances | Total d'assistances |
 | ⚔️ K/D | Ratio kills/deaths |
-| ⏱️ Temps de jeu | Temps total en heures |
+| 🔥 Meilleure série | Meilleure série d'éliminations consécutives |
+| 🗺️ Distance totale | Distance totale parcourue (km) |
+| 📏 Moy. / partie | Distance moyenne parcourue par partie (km) |
 
 ---
 
@@ -109,13 +111,16 @@ wrangler deploy worker.js --name eva-stats-discord --compatibility-date 2024-01-
 
 ---
 
-### 3. Configurer la variable d'environnement
+### 3. Configurer les variables d'environnement
 
 Dans le dashboard Cloudflare → ton Worker → **Settings → Variables** :
 
-| Variable | Valeur |
-|---|---|
-| `DISCORD_PUBLIC_KEY` | La Public Key copiée à l'étape 1 |
+| Variable | Obligatoire | Valeur |
+|---|---|---|
+| `DISCORD_PUBLIC_KEY` | ✅ | La Public Key copiée à l'étape 1 |
+| `STATS_CHANNEL_ID` | ❌ | ID du salon Discord réservé aux stats (clic droit sur le salon → Copier l'identifiant) |
+
+> Si `STATS_CHANNEL_ID` est défini, toute utilisation de `/stats` hors de ce salon retourne un message éphémère (visible uniquement par l'utilisateur) indiquant le bon salon.
 
 ---
 
