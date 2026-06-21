@@ -1,7 +1,7 @@
-// EVA Battle Arena — Discord /stats command
+// EVA Battle Arena — Discord /stats + /setchannel commands
 // Deploy on Cloudflare Workers (free)
-// Required env vars : DISCORD_PUBLIC_KEY
-// Optional env vars : STATS_CHANNEL_ID (restrict to one channel)
+// Required env vars  : DISCORD_PUBLIC_KEY
+// Required KV binding: EVA_KV  (namespace bound as EVA_KV in wrangler.toml / dashboard)
 
 const EVA_GRAPHQL = 'https://api.eva.gg/graphql';
 const SEASON_ID = 8;
@@ -35,6 +35,8 @@ fragment PlayerStatisticsField on Player {
   }
 }`;
 
+// ── Crypto ────────────────────────────────────────────────────────────────────
+
 function hexToUint8Array(hex) {
   return new Uint8Array(hex.match(/.{1,2}/g).map(b => parseInt(b, 16)));
 }
@@ -54,6 +56,8 @@ async function verifyDiscordRequest(publicKey, signature, timestamp, rawBody) {
     new TextEncoder().encode(timestamp + rawBody)
   );
 }
+
+// ── EVA API ───────────────────────────────────────────────────────────────────
 
 async function fetchEvaStats(username) {
   const res = await fetch(EVA_GRAPHQL, {
@@ -79,6 +83,8 @@ async function fetchEvaStats(username) {
   return player;
 }
 
+// ── Formatters ────────────────────────────────────────────────────────────────
+
 function fmt(n, decimals = 0) {
   if (n == null) return '?';
   return Number(n).toLocaleString('fr-FR', { maximumFractionDigits: decimals });
@@ -100,6 +106,8 @@ function progressBar(pct, length = 10) {
   const filled = Math.round(Math.min(pct, 100) / 100 * length);
   return '█'.repeat(filled) + '░'.repeat(length - filled);
 }
+
+// ── Embed ─────────────────────────────────────────────────────────────────────
 
 function buildEmbed(player, username) {
   const name   = player.user.displayName;
@@ -128,7 +136,7 @@ function buildEmbed(player, username) {
       ].join('\n'),
       color: 0xF97316,
       fields: [
-        // ── Parties ──────────────────────────────────────────────
+        // ── Parties ───────────────────────────────────────────────
         {
           name: '🎮 Parties',
           value: `**${fmt(games)}** totales\n✅ ${fmt(wins)}V · ❌ ${fmt(losses)}D · ➖ ${fmt(draws)}N`,
@@ -144,7 +152,7 @@ function buildEmbed(player, username) {
           value: `**${formatTime(s?.gameTime)}**`,
           inline: true,
         },
-        // ── Combat ───────────────────────────────────────────────
+        // ── Combat ────────────────────────────────────────────────
         {
           name: '🔫 Kills',
           value: `**${fmt(s?.kills)}**`,
@@ -160,7 +168,7 @@ function buildEmbed(player, username) {
           value: `**${fmt(s?.assists)}**`,
           inline: true,
         },
-        // ── Ratios ───────────────────────────────────────────────
+        // ── Ratios ────────────────────────────────────────────────
         {
           name: '⚔️ K/D',
           value: `**${kd}**`,
@@ -176,7 +184,7 @@ function buildEmbed(player, username) {
           value: '​',
           inline: true,
         },
-        // ── Distance ─────────────────────────────────────────────
+        // ── Distance ──────────────────────────────────────────────
         {
           name: '🗺️ Distance totale',
           value: `**${formatDist(s?.traveledDistance)}**`,
@@ -199,6 +207,51 @@ function buildEmbed(player, username) {
   };
 }
 
+// ── Handlers ──────────────────────────────────────────────────────────────────
+
+async function handleSetChannel(body, env) {
+  const guildId   = body.guild_id;
+  const channelId = body.data.options?.[0]?.value ?? body.channel_id;
+
+  await env.EVA_KV.put(`stats_channel:${guildId}`, channelId);
+
+  return Response.json({
+    type: 4,
+    data: {
+      content: `✅ Salon des stats configuré sur <#${channelId}>. La commande \`/stats\` ne fonctionnera plus qu'ici.`,
+      flags: 64,
+    },
+  });
+}
+
+async function handleStats(body, env) {
+  const guildId       = body.guild_id;
+  const allowedChannel = await env.EVA_KV.get(`stats_channel:${guildId}`);
+
+  if (allowedChannel && body.channel_id !== allowedChannel) {
+    return Response.json({
+      type: 4,
+      data: {
+        content: `❌ Cette commande est réservée au salon <#${allowedChannel}>.`,
+        flags: 64,
+      },
+    });
+  }
+
+  const username = body.data.options[0].value;
+  try {
+    const player = await fetchEvaStats(username);
+    return Response.json({ type: 4, data: buildEmbed(player, username) });
+  } catch (err) {
+    return Response.json({
+      type: 4,
+      data: { content: `❌ ${err.message}`, flags: 64 },
+    });
+  }
+}
+
+// ── Entry point ───────────────────────────────────────────────────────────────
+
 export default {
   async fetch(request, env) {
     if (request.method !== 'POST') {
@@ -217,33 +270,12 @@ export default {
 
     const body = JSON.parse(rawBody);
 
-    // Ping de vérification Discord
     if (body.type === 1) return Response.json({ type: 1 });
 
-    // Slash command /stats
-    if (body.type === 2 && body.data.name === 'stats') {
-
-      // Restriction de salon (optionnel)
-      const allowedChannel = env.STATS_CHANNEL_ID;
-      if (allowedChannel && body.channel_id !== allowedChannel) {
-        return Response.json({
-          type: 4,
-          data: {
-            content: `❌ Cette commande est réservée au salon <#${allowedChannel}>.`,
-            flags: 64,
-          },
-        });
-      }
-
-      const username = body.data.options[0].value;
-      try {
-        const player = await fetchEvaStats(username);
-        return Response.json({ type: 4, data: buildEmbed(player, username) });
-      } catch (err) {
-        return Response.json({
-          type: 4,
-          data: { content: `❌ ${err.message}`, flags: 64 },
-        });
+    if (body.type === 2) {
+      switch (body.data.name) {
+        case 'setchannel': return handleSetChannel(body, env);
+        case 'stats':      return handleStats(body, env);
       }
     }
 

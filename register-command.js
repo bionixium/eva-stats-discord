@@ -1,4 +1,4 @@
-// Run once to register the /stats slash command on Discord
+// Run once to register slash commands on Discord
 // Usage: node register-command.js
 
 const APP_ID    = process.env.DISCORD_APP_ID;
@@ -9,28 +9,47 @@ if (!APP_ID || !BOT_TOKEN) {
   process.exit(1);
 }
 
-const command = {
-  name: 'stats',
-  description: "Affiche les stats EVA Battle Arena d'un joueur",
-  options: [{
-    name: 'pseudo',
-    description: 'Pseudo du joueur (ex: TKAxBionixium#805682)',
-    type: 3,      // STRING
-    required: true,
-  }],
-};
+const commands = [
+  {
+    name: 'stats',
+    description: "Affiche les stats EVA Battle Arena d'un joueur",
+    options: [{
+      name: 'pseudo',
+      description: 'Pseudo du joueur (ex: TKAxBionixium#805682)',
+      type: 3,      // STRING
+      required: true,
+    }],
+  },
+  {
+    name: 'setchannel',
+    description: 'Définit le salon réservé à la commande /stats',
+    // Réservé aux administrateurs du serveur
+    default_member_permissions: '8',
+    options: [{
+      name: 'salon',
+      description: 'Salon à utiliser (laisse vide pour utiliser le salon actuel)',
+      type: 7,      // CHANNEL
+      required: false,
+    }],
+  },
+];
 
-fetch(`https://discord.com/api/v10/applications/${APP_ID}/commands`, {
-  method: 'POST',
+const url = `https://discord.com/api/v10/applications/${APP_ID}/commands`;
+
+fetch(url, {
+  method: 'PUT',   // PUT remplace toutes les commandes globales en une fois
   headers: {
     Authorization: `Bot ${BOT_TOKEN}`,
     'Content-Type': 'application/json',
   },
-  body: JSON.stringify(command),
+  body: JSON.stringify(commands),
 })
   .then(r => r.json())
   .then(res => {
-    if (res.id) console.log(`✅ Commande /stats enregistrée (id: ${res.id})`);
-    else console.error('❌ Erreur :', res);
+    if (Array.isArray(res)) {
+      res.forEach(cmd => console.log(`✅ /${cmd.name} enregistrée (id: ${cmd.id})`));
+    } else {
+      console.error('❌ Erreur :', res);
+    }
   })
   .catch(console.error);

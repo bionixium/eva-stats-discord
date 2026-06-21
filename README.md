@@ -6,13 +6,28 @@ Fonctionne sur **Cloudflare Workers** — gratuit, sans serveur à gérer.
 
 ---
 
-## Fonctionnement
+## Commandes
+
+| Commande | Accès | Description |
+|---|---|---|
+| `/stats <pseudo>` | Tout le monde | Affiche les stats EVA.GG d'un joueur |
+| `/setchannel [#salon]` | Administrateurs uniquement | Définit le salon réservé à `/stats` |
+
+### `/setchannel`
 
 ```
-/stats TKAxBionixium#805682
+/setchannel #stats-eva
 ```
 
-Le bot interroge l'API GraphQL d'EVA.GG et retourne un embed Discord avec :
+Configure le salon dans lequel la commande `/stats` sera autorisée. Si quelqu'un l'utilise ailleurs, il reçoit un message éphémère (visible uniquement par lui) indiquant le bon salon.
+
+- Le salon est **persisté dans Cloudflare KV** — il survit aux redéploiements du Worker.
+- Sans salon configuré, `/stats` fonctionne partout.
+- Réservé aux membres avec la permission **Administrateur**.
+
+---
+
+## Champs affichés par `/stats`
 
 | Champ | Détail |
 |---|---|
@@ -33,19 +48,18 @@ Le bot interroge l'API GraphQL d'EVA.GG et retourne un embed Discord avec :
 
 ```
 Serveur Discord
-      │  POST (interaction /stats)
+      │  POST (interaction)
       ▼
 Cloudflare Worker (worker.js)
       │  Vérifie la signature Ed25519
-      │  POST api.eva.gg/graphql
-      ▼
-   EVA.GG API  →  JSON stats
-      │
-      ▼
-  Embed Discord
+      ├─ /setchannel ──► Cloudflare KV  (stocke channel_id par guild)
+      └─ /stats      ──► KV (lecture) + api.eva.gg/graphql
+                                │
+                                ▼
+                          Embed Discord
 ```
 
-**Aucun serveur dédié.** La requête Discord arrive directement sur Cloudflare Workers, qui appelle l'API EVA.GG et renvoie l'embed.
+**Aucun serveur dédié.** Les interactions Discord arrivent directement sur Cloudflare Workers.
 
 ---
 
@@ -54,7 +68,7 @@ Cloudflare Worker (worker.js)
 ```
 .
 ├── worker.js            # Logique principale (Cloudflare Worker)
-├── register-command.js  # Script one-shot : enregistre /stats sur Discord
+├── register-command.js  # Script one-shot : enregistre les commandes sur Discord
 └── README.md
 ```
 
@@ -62,12 +76,12 @@ Cloudflare Worker (worker.js)
 
 - Valide la signature Ed25519 de Discord (`DISCORD_PUBLIC_KEY`)
 - Répond au ping de vérification Discord (type 1)
-- Sur `/stats <pseudo>` : appelle l'API EVA.GG et retourne un embed formaté
-- Gère les erreurs (joueur introuvable, API indisponible)
+- `/setchannel` : stocke l'ID du salon dans Cloudflare KV (`EVA_KV`)
+- `/stats` : vérifie le salon autorisé (KV), appelle l'API EVA.GG, retourne un embed
 
 ### `register-command.js`
 
-Script Node.js à exécuter **une seule fois** pour enregistrer la commande `/stats` auprès de Discord.
+Script Node.js à exécuter **une seule fois** pour enregistrer `/stats` et `/setchannel` auprès de Discord.
 
 ---
 
@@ -93,60 +107,97 @@ Script Node.js à exécuter **une seule fois** pour enregistrer la commande `/st
 
 ---
 
-### 2. Déployer sur Cloudflare Workers
+### 2. Créer le namespace Cloudflare KV
+
+1. Va sur [dash.cloudflare.com](https://dash.cloudflare.com) → **Workers & Pages** → **KV**
+2. **Create a namespace** → nom : `EVA_KV` → **Add**
+3. Note l'**ID** du namespace (tu en auras besoin à l'étape suivante)
+
+---
+
+### 3. Déployer le Worker
 
 #### Via le dashboard Cloudflare (sans CLI)
 
-1. Va sur [dash.cloudflare.com](https://dash.cloudflare.com) → **Workers & Pages** → **Create**
-2. **Create Worker** → édite le code en collant le contenu de `worker.js`
-3. **Save and Deploy** → copie l'URL du Worker (ex: `https://eva-stats.TON_SOUS_DOMAINE.workers.dev`)
+1. **Workers & Pages** → **Create** → **Create Worker**
+2. Colle le contenu de `worker.js` → **Save and Deploy**
+3. Dans les paramètres du Worker → **Settings → Bindings** → **Add binding** :
+   - Type : **KV Namespace**
+   - Variable name : `EVA_KV`
+   - KV Namespace : sélectionne `EVA_KV` créé à l'étape 2
+4. Copie l'URL du Worker (ex: `https://eva-stats.TON_SOUS_DOMAINE.workers.dev`)
 
 #### Via Wrangler CLI
+
+Crée un fichier `wrangler.toml` :
+
+```toml
+name = "eva-stats-discord"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "EVA_KV"
+id = "REMPLACE_PAR_TON_KV_NAMESPACE_ID"
+```
+
+Puis déploie :
 
 ```bash
 npm install -g wrangler
 wrangler login
-wrangler deploy worker.js --name eva-stats-discord --compatibility-date 2024-01-01
+wrangler deploy
 ```
 
 ---
 
-### 3. Configurer les variables d'environnement
+### 4. Configurer la variable d'environnement
 
 Dans le dashboard Cloudflare → ton Worker → **Settings → Variables** :
 
 | Variable | Obligatoire | Valeur |
 |---|---|---|
 | `DISCORD_PUBLIC_KEY` | ✅ | La Public Key copiée à l'étape 1 |
-| `STATS_CHANNEL_ID` | ❌ | ID du salon Discord réservé aux stats (clic droit sur le salon → Copier l'identifiant) |
-
-> Si `STATS_CHANNEL_ID` est défini, toute utilisation de `/stats` hors de ce salon retourne un message éphémère (visible uniquement par l'utilisateur) indiquant le bon salon.
 
 ---
 
-### 4. Connecter Discord au Worker
+### 5. Connecter Discord au Worker
 
 Dans le [Developer Portal Discord](https://discord.com/developers/applications) → ton app → **General Information** :
 
 - **Interactions Endpoint URL** : colle l'URL de ton Cloudflare Worker
 
-Discord va envoyer un ping de vérification — le Worker doit répondre `{ type: 1 }` (c'est déjà géré dans `worker.js`).
+Discord va envoyer un ping de vérification — le Worker doit répondre `{ type: 1 }` (c'est déjà géré).
 
 ---
 
-### 5. Enregistrer la commande `/stats`
+### 6. Enregistrer les commandes
 
 ```bash
+# Linux / macOS
 DISCORD_APP_ID=ton_app_id DISCORD_BOT_TOKEN=ton_bot_token node register-command.js
 ```
 
-Sur Windows (PowerShell) :
-
 ```powershell
+# Windows (PowerShell)
 $env:DISCORD_APP_ID="ton_app_id"
 $env:DISCORD_BOT_TOKEN="ton_bot_token"
 node register-command.js
 ```
+
+Les deux commandes (`/stats` et `/setchannel`) sont enregistrées en une seule passe.
+
+---
+
+### 7. Configurer le salon (dans Discord)
+
+Dans ton serveur Discord, en tant qu'administrateur :
+
+```
+/setchannel #stats-eva
+```
+
+La commande `/stats` sera désormais restreinte à ce salon.
 
 ---
 
@@ -158,7 +209,7 @@ En début de nouvelle saison EVA.GG, modifie la variable dans `worker.js` :
 const SEASON_ID = 9; // ← incrémenter
 ```
 
-Puis redéployez le Worker.
+Puis redéploie le Worker (copier-coller dans le dashboard ou `wrangler deploy`).
 
 ---
 
@@ -178,6 +229,7 @@ Puis redéployez le Worker.
 - Les profils **privés** sur EVA.GG ne sont pas accessibles
 - Le pseudo doit correspondre exactement au format EVA.GG (ex: `Pseudo#1234`)
 - Cloudflare Workers free tier : 100 000 requêtes/jour
+- Cloudflare KV free tier : 100 000 lectures/jour, 1 000 écritures/jour
 
 ---
 
