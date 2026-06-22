@@ -189,20 +189,37 @@ async function handleStats(body, env) {
     });
   }
 
-  const username = body.data.options[0].value;
+  const input = body.data.options[0].value.trim();
+  let username = input;
 
+  // Pseudo sans code : on tente de le retrouver dans la mémoire (alias KV)
   if (!username.includes('#')) {
-    return Response.json({
-      type: 4,
-      data: {
-        content: `❌ Le pseudo doit inclure le numéro EVA.GG.\n**Exemple :** \`${username}#123456\`\nTrouve ton numéro sur https://app.eva.gg/profile`,
-        flags: 64,
-      },
-    });
+    const cached = await env.EVA_KV.get(`alias:${input.toLowerCase()}`);
+    if (!cached) {
+      return Response.json({
+        type: 4,
+        data: {
+          content:
+            `❓ Je ne connais pas encore **${input}**.\n` +
+            `Lance une première fois \`/stats ${input}#code\` (avec le numéro EVA.GG) — ` +
+            `je le retiendrai et tu pourras ensuite taper juste \`/stats ${input}\`.\n` +
+            `Tu trouves ton numéro sur https://app.eva.gg/profile`,
+          flags: 64,
+        },
+      });
+    }
+    username = cached;
   }
 
   try {
     const player = await fetchEvaStats(username);
+
+    // Mémorise l'alias : displayName (sans code) → username complet
+    const display = player.user?.displayName;
+    if (display && username.includes('#')) {
+      await env.EVA_KV.put(`alias:${display.toLowerCase()}`, username);
+    }
+
     return Response.json({ type: 4, data: buildEmbed(player, username) });
   } catch (err) {
     return Response.json({

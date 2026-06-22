@@ -15,7 +15,7 @@ const commands = [
     description: "Affiche les stats EVA Battle Arena d'un joueur",
     options: [{
       name: 'pseudo',
-      description: 'Pseudo du joueur (ex: TKAxBionixium#805682)',
+      description: 'Pseudo du joueur (code #805682 requis la 1re fois, puis facultatif)',
       type: 3,      // STRING
       required: true,
     }],
