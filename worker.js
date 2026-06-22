@@ -6,7 +6,7 @@
 const EVA_GRAPHQL = 'https://api.eva.gg/graphql';
 
 // API publique de la plateforme compétitive (sert à résoudre pseudo -> pseudo#code)
-const COMP_API = 'https://competitive.eva.gg/en_GB/api';
+const COMP_API = 'https://competitive.eva.gg/api';
 
 // Crawl : nombre d'équipes traitées par déclenchement du cron (budget 50 sous-requêtes)
 const TEAMS_PER_RUN = 6;

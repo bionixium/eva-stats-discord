@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const BASE = 'https://competitive.eva.gg/en_GB/api';
+const BASE = 'https://competitive.eva.gg/api';
 const OUT_ALIASES = join(__dirname, 'aliases.json');
 const OUT_KV      = join(__dirname, 'aliases-kv.json');
 const STATE       = join(__dirname, 'crawl-state.json');
