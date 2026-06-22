@@ -140,7 +140,7 @@ function buildEmbed(player, username) {
         { name: '✅ Victoires',      value: `**${fmt(wins)}** (${winRate}%)`, inline: true },
         { name: '❌ Défaites',       value: `**${fmt(losses)}**`, inline: true },
         { name: '⏱️ Temps de jeu',  value: `**${formatTime(s?.gameTime)}**`, inline: true },
-        { name: '➖ Nuls',           value: `**${fmt(draws)}**`, inline: true },
+        { name: '​',            value: '​', inline: true },
         { name: '​',            value: '​', inline: true },
 
         // ── SÉPARATEUR ────────────────────────────────────────────
