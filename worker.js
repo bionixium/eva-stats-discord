@@ -5,18 +5,21 @@
 
 const EVA_GRAPHQL = 'https://api.eva.gg/graphql';
 
-// Un seul appel : la requête par défaut renvoie les stats de la saison
-// en cours + le numéro de saison (experience.seasonId / statistics.seasonId)
+// Saison en cours — à incrémenter au changement de saison EVA.GG
+const CURRENT_SEASON = 7;
+
+// Un seul appel, en passant explicitement la saison en cours pour avoir
+// les vraies stats de la saison (sans paramètre l'API renvoie l'all-time)
 const GQL_QUERY = `
-query getPublicPlayerByUsername($username: String!, $includeStatistics: Boolean = false) {
+query getPublicPlayerByUsername($username: String!, $seasonId: Int, $includeStatistics: Boolean = false) {
   getPublicPlayerByUsername(username: $username) {
     user { username displayName }
-    experience { level seasonId }
+    experience(seasonId: $seasonId) { level seasonId }
     ...PlayerStatisticsField @include(if: $includeStatistics)
   }
 }
 fragment PlayerStatisticsField on Player {
-  statistics {
+  statistics(seasonId: $seasonId) {
     seasonId
     data {
       gameCount
@@ -64,7 +67,7 @@ async function fetchEvaStats(username) {
     body: JSON.stringify({
       operationName: 'getPublicPlayerByUsername',
       query: GQL_QUERY,
-      variables: { username, includeStatistics: true },
+      variables: { username, seasonId: CURRENT_SEASON, includeStatistics: true },
     }),
   });
 
@@ -104,7 +107,7 @@ function formatDist(meters) {
 function buildEmbed(player, username) {
   const name     = player.user.displayName;
   const level    = player.experience?.level ?? '?';
-  const seasonId = player.experience?.seasonId ?? player.statistics?.seasonId ?? '?';
+  const seasonId = CURRENT_SEASON;
   const s        = player.statistics?.data;
 
   const games   = s?.gameCount ?? 0;
