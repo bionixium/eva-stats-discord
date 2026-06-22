@@ -2,10 +2,10 @@ name = "eva-stats-discord"
 main = "worker.js"
 compatibility_date = "2024-01-01"
 
-# Binding KV — remplace l'id par celui de ton namespace EVA_KV
+# Binding KV — namespace EVA_KV (production)
 [[kv_namespaces]]
 binding = "EVA_KV"
-id = "REMPLACE_PAR_TON_KV_NAMESPACE_ID"
+id = "efba5bd954a04ad49a32c885dc554a2f"
 
 # Cron : le crawl ne RAFRAÎCHIT la base qu'une fois par semaine (cf. maybeCrawl
 # dans worker.js). Le déclenchement reste fréquent (5 min) uniquement parce qu'un

@@ -32,6 +32,10 @@ const commands = [
       required: false,
     }],
   },
+  {
+    name: 'liste',
+    description: 'Affiche le nombre de joueurs indexés et l\'avancement du crawl',
+  },
 ];
 
 const url = `https://discord.com/api/v10/applications/${APP_ID}/commands`;

@@ -21,3 +21,9 @@ venv/
 
 # Tests locaux (non déployés)
 tools/test-crawl.mjs
+
+# Exports générés
+tools/joueurs.csv
+tools/aliases.json
+tools/aliases-kv.json
+tools/crawl-state.json

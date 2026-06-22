@@ -329,6 +329,40 @@ async function maybeCrawl(env) {
   }
 }
 
+// ── Commande /liste ──────────────────────────────────────────────────────────
+// Compte les joueurs indexés (clés alias:*) et affiche l'avancement du crawl.
+
+async function handleListe(env) {
+  let count = 0;
+  let cursor;
+  do {
+    const res = await env.EVA_KV.list({ prefix: 'alias:', cursor, limit: 1000 });
+    count += res.keys.length;
+    cursor = res.list_complete ? null : res.cursor;
+  } while (cursor);
+
+  const offset = parseInt(await env.EVA_KV.get('crawl:offset')) || 0;
+  const week   = parseInt(await env.EVA_KV.get('crawl:week'));
+  const thisWeek = Math.floor(Date.now() / 604800000);
+  const aJour = week === thisWeek;
+
+  return Response.json({
+    type: 4,
+    data: {
+      embeds: [{
+        title: '📒 Base de joueurs EVA',
+        color: 0xF97316,
+        fields: [
+          { name: '👥 Joueurs indexés', value: `**${count.toLocaleString('fr-FR')}**`, inline: true },
+          { name: '🔄 Crawl', value: aJour ? '✅ à jour cette semaine' : `en cours (équipe ${offset}/945)`, inline: true },
+        ],
+        footer: { text: 'Tape /stats <pseudo> — le code #1234 n\'est requis que pour les joueurs hors ligue' },
+      }],
+      flags: 64,
+    },
+  });
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 export default {
@@ -360,6 +394,7 @@ export default {
       switch (body.data.name) {
         case 'setchannel': return handleSetChannel(body, env);
         case 'stats':      return handleStats(body, env);
+        case 'liste':      return handleListe(env);
       }
     }
 
