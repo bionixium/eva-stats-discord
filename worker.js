@@ -1,36 +1,37 @@
 // EVA Battle Arena — Discord /stats + /setchannel commands
 // Deploy on Cloudflare Workers (free)
 // Required env vars  : DISCORD_PUBLIC_KEY
-// Required KV binding: EVA_KV  (namespace bound as EVA_KV in wrangler.toml / dashboard)
+// Required KV binding: EVA_KV
 
 const EVA_GRAPHQL = 'https://api.eva.gg/graphql';
 
-const GQL_QUERY = `
-query getPublicPlayerByUsername($username: String!, $includeStatistics: Boolean = false) {
+// Requête 1 : infos de base + saison courante + stats all time
+const GQL_BASE = `
+query getBase($username: String!) {
   getPublicPlayerByUsername(username: $username) {
     user { username displayName }
     experience { level seasonId }
-    ...PlayerStatisticsField @include(if: $includeStatistics)
+    statistics {
+      data {
+        gameCount gameVictoryCount gameDefeatCount gameDrawCount gameTime
+        kills deaths assists killsByDeaths bestKillStreak
+        traveledDistance traveledDistanceAverage
+      }
+    }
   }
-}
-fragment PlayerStatisticsField on Player {
-  statistics {
-    seasonId
-    data {
-      gameCount
-      gameVictoryCount
-      gameDefeatCount
-      gameDrawCount
-      gameTime
-      kills
-      deaths
-      assists
-      killsByDeaths
-      bestKillStreak
-      traveledDistance
-      traveledDistanceAverage
-      inflictedDamage
-      bestInflictedDamage
+}`;
+
+// Requête 2 : stats de la saison courante uniquement
+const GQL_SEASON = `
+query getSeason($username: String!, $seasonId: Int!) {
+  getPublicPlayerByUsername(username: $username) {
+    experience(seasonId: $seasonId) { level }
+    statistics(seasonId: $seasonId) {
+      data {
+        gameCount gameVictoryCount gameDefeatCount gameTime
+        kills deaths assists killsByDeaths bestKillStreak
+        traveledDistance traveledDistanceAverage
+      }
     }
   }
 }`;
@@ -43,15 +44,10 @@ function hexToUint8Array(hex) {
 
 async function verifyDiscordRequest(publicKey, signature, timestamp, rawBody) {
   const key = await crypto.subtle.importKey(
-    'raw',
-    hexToUint8Array(publicKey),
-    { name: 'Ed25519' },
-    false,
-    ['verify']
+    'raw', hexToUint8Array(publicKey), { name: 'Ed25519' }, false, ['verify']
   );
   return crypto.subtle.verify(
-    { name: 'Ed25519' },
-    key,
+    { name: 'Ed25519' }, key,
     hexToUint8Array(signature),
     new TextEncoder().encode(timestamp + rawBody)
   );
@@ -59,7 +55,7 @@ async function verifyDiscordRequest(publicKey, signature, timestamp, rawBody) {
 
 // ── EVA API ───────────────────────────────────────────────────────────────────
 
-async function fetchEvaStats(username) {
+async function gql(query, variables) {
   const res = await fetch(EVA_GRAPHQL, {
     method: 'POST',
     headers: {
@@ -67,27 +63,43 @@ async function fetchEvaStats(username) {
       'Origin': 'https://app.eva.gg',
       'Referer': 'https://app.eva.gg/',
     },
-    body: JSON.stringify({
-      operationName: 'getPublicPlayerByUsername',
-      query: GQL_QUERY,
-      variables: { username, includeStatistics: true },
-    }),
+    body: JSON.stringify({ query, variables }),
   });
-
   if (!res.ok) throw new Error(`Erreur EVA API (${res.status})`);
+  return res.json();
+}
 
-  const json = await res.json();
-  const player = json.data?.getPublicPlayerByUsername;
+async function fetchEvaStats(username) {
+  // Appel 1 — base + all time
+  const base = await gql(GQL_BASE, { username });
+  const player = base.data?.getPublicPlayerByUsername;
   if (!player) throw new Error('Joueur introuvable. Vérifie le pseudo (ex: `Pseudo#1234`)');
 
-  return player;
+  const seasonId = player.experience?.seasonId;
+
+  // Appel 2 — stats saison courante (en parallèle c'est déjà séquentiel ici)
+  const seasonData = seasonId
+    ? await gql(GQL_SEASON, { username, seasonId })
+    : null;
+
+  const seasonPlayer = seasonData?.data?.getPublicPlayerByUsername;
+
+  return {
+    displayName : player.user.displayName,
+    username    : player.user.username,
+    seasonId,
+    levelAllTime: player.experience?.level ?? '?',
+    levelSeason : seasonPlayer?.experience?.level ?? '?',
+    allTime     : player.statistics?.data ?? {},
+    season      : seasonPlayer?.statistics?.data ?? {},
+  };
 }
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
-function fmt(n, decimals = 0) {
+function fmt(n) {
   if (n == null) return '?';
-  return Number(n).toLocaleString('fr-FR', { maximumFractionDigits: decimals });
+  return Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 });
 }
 
 function formatTime(seconds) {
@@ -102,64 +114,63 @@ function formatDist(meters) {
   return `${(meters / 1000).toFixed(1)} km`;
 }
 
-function progressBar(pct, length = 10) {
-  const filled = Math.round(Math.min(pct, 100) / 100 * length);
-  return '█'.repeat(filled) + '░'.repeat(length - filled);
+function statsFields(s) {
+  const games   = s?.gameCount ?? 0;
+  const wins    = s?.gameVictoryCount ?? 0;
+  const losses  = s?.gameDefeatCount ?? 0;
+  const winRate = games > 0 ? Math.round((wins / games) * 100) : 0;
+  const kd      = s?.killsByDeaths != null ? s.killsByDeaths.toFixed(2) : '?';
+
+  return [
+    { name: '🎮 Parties',          value: `**${fmt(games)}**`,                  inline: true },
+    { name: '✅ Victoires',         value: `**${fmt(wins)}** (${winRate}%)`,     inline: true },
+    { name: '❌ Défaites',          value: `**${fmt(losses)}**`,                 inline: true },
+    { name: '⏱️ Temps de jeu',     value: `**${formatTime(s?.gameTime)}**`,     inline: true },
+    { name: '​', value: '​', inline: true },
+    { name: '​', value: '​', inline: true },
+    { name: '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬', value: '⚔️ **COMBAT**', inline: false },
+    { name: '🔫 Kills',             value: `**${fmt(s?.kills)}**`,              inline: true },
+    { name: '☠️ Morts',             value: `**${fmt(s?.deaths)}**`,             inline: true },
+    { name: '🤝 Assistances',       value: `**${fmt(s?.assists)}**`,            inline: true },
+    { name: '⚔️ K/D',               value: `**${kd}**`,                         inline: true },
+    { name: '🔥 Meilleure série',   value: `**${fmt(s?.bestKillStreak)}** kills`, inline: true },
+    { name: '​', value: '​', inline: true },
+    { name: '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬', value: '🗺️ **DISTANCE**', inline: false },
+    { name: '🗺️ Totale',           value: `**${formatDist(s?.traveledDistance)}**`,        inline: true },
+    { name: '📏 Moy. / partie',    value: `**${formatDist(s?.traveledDistanceAverage)}**`, inline: true },
+    { name: '​', value: '​', inline: true },
+  ];
 }
 
 // ── Embed ─────────────────────────────────────────────────────────────────────
 
-function sep(title) {
-  return { name: `╔═══════════════════╗`, value: `**${title}**`, inline: false };
-}
-
-function buildEmbed(player, username) {
-  const name     = player.user.displayName;
-  const level    = player.experience?.level ?? '?';
-  const s = player.statistics?.data;
-
-  const games   = s?.gameCount ?? 0;
-  const wins    = s?.gameVictoryCount ?? 0;
-  const losses  = s?.gameDefeatCount ?? 0;
-  const draws   = s?.gameDrawCount ?? 0;
-  const winRate = games > 0 ? Math.round((wins / games) * 100) : 0;
-  const kd      = s?.killsByDeaths != null ? s.killsByDeaths.toFixed(2) : '?';
-
+function buildEmbed(data, username) {
   const profileUrl = `https://app.eva.gg/profile/public/${encodeURIComponent(username)}`;
 
   return {
     embeds: [{
-      title: `${name}`,
+      title: data.displayName,
       url: profileUrl,
-      description: `**Niveau ${level}** · All Time · [Voir le profil](${profileUrl})`,
+      description: `[🔗 Voir le profil public](${profileUrl})`,
       color: 0xF97316,
       fields: [
-        // ── PARTIES ───────────────────────────────────────────────
-        { name: '🎮 Parties jouées', value: `**${fmt(games)}**`, inline: true },
-        { name: '✅ Victoires',      value: `**${fmt(wins)}** (${winRate}%)`, inline: true },
-        { name: '❌ Défaites',       value: `**${fmt(losses)}**`, inline: true },
-        { name: '⏱️ Temps de jeu',  value: `**${formatTime(s?.gameTime)}**`, inline: true },
-        { name: '​',            value: '​', inline: true },
-        { name: '​',            value: '​', inline: true },
+        // ══ SAISON COURANTE ═══════════════════════════════════════
+        {
+          name: `━━━━━━━━━━ 🏆 SAISON ${data.seasonId} ━━━━━━━━━━`,
+          value: `Niveau **${data.levelSeason}**`,
+          inline: false,
+        },
+        ...statsFields(data.season),
 
-        // ── SÉPARATEUR ────────────────────────────────────────────
-        { name: '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬', value: '⚔️ **COMBAT**', inline: false },
-
-        { name: '🔫 Kills',          value: `**${fmt(s?.kills)}**`,  inline: true },
-        { name: '☠️ Morts',          value: `**${fmt(s?.deaths)}**`, inline: true },
-        { name: '🤝 Assistances',    value: `**${fmt(s?.assists)}**`, inline: true },
-        { name: '⚔️ K/D',            value: `**${kd}**`, inline: true },
-        { name: '🔥 Meilleure série',value: `**${fmt(s?.bestKillStreak)}** kills`, inline: true },
-        { name: '​',            value: '​', inline: true },
-
-        // ── SÉPARATEUR ────────────────────────────────────────────
-        { name: '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬', value: '🗺️ **DISTANCE**', inline: false },
-
-        { name: '🗺️ Totale',        value: `**${formatDist(s?.traveledDistance)}**`,        inline: true },
-        { name: '📏 Moy. / partie', value: `**${formatDist(s?.traveledDistanceAverage)}**`, inline: true },
-        { name: '​',           value: '​', inline: true },
+        // ══ ALL TIME ══════════════════════════════════════════════
+        {
+          name: `━━━━━━━━━━━━ 🌍 ALL TIME ━━━━━━━━━━━━`,
+          value: `Niveau **${data.levelAllTime}**`,
+          inline: false,
+        },
+        ...statsFields(data.allTime),
       ],
-      footer: { text: `eva.gg • All Time` },
+      footer: { text: 'eva.gg Stats' },
       timestamp: new Date().toISOString(),
     }],
   };
@@ -183,7 +194,7 @@ async function handleSetChannel(body, env) {
 }
 
 async function handleStats(body, env) {
-  const guildId       = body.guild_id;
+  const guildId        = body.guild_id;
   const allowedChannel = await env.EVA_KV.get(`stats_channel:${guildId}`);
 
   if (allowedChannel && body.channel_id !== allowedChannel) {
@@ -209,8 +220,8 @@ async function handleStats(body, env) {
   }
 
   try {
-    const player = await fetchEvaStats(username);
-    return Response.json({ type: 4, data: buildEmbed(player, username) });
+    const data = await fetchEvaStats(username);
+    return Response.json({ type: 4, data: buildEmbed(data, username) });
   } catch (err) {
     return Response.json({
       type: 4,
