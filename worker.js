@@ -239,6 +239,17 @@ async function handleStats(body, env) {
   }
 
   const username = body.data.options[0].value;
+
+  if (!username.includes('#')) {
+    return Response.json({
+      type: 4,
+      data: {
+        content: `❌ Le pseudo doit inclure le numéro EVA.GG.\n**Exemple :** \`${username}#123456\`\nTrouve ton numéro sur https://app.eva.gg/profile`,
+        flags: 64,
+      },
+    });
+  }
+
   try {
     const player = await fetchEvaStats(username);
     return Response.json({ type: 4, data: buildEmbed(player, username) });
