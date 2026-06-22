@@ -55,18 +55,28 @@ async function verifyDiscordRequest(publicKey, signature, timestamp, rawBody) {
 
 // ── EVA API ───────────────────────────────────────────────────────────────────
 
-async function gql(query, variables) {
-  const res = await fetch(EVA_GRAPHQL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Origin': 'https://app.eva.gg',
-      'Referer': 'https://app.eva.gg/',
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-  if (!res.ok) throw new Error(`Erreur EVA API (${res.status})`);
-  return res.json();
+async function gql(query, variables, retry = 3) {
+  for (let i = 0; i < retry; i++) {
+    const res = await fetch(EVA_GRAPHQL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': 'https://app.eva.gg',
+        'Referer': 'https://app.eva.gg/',
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+
+    if (res.status === 429) {
+      const wait = (i + 1) * 800;
+      await new Promise(r => setTimeout(r, wait));
+      continue;
+    }
+
+    if (!res.ok) throw new Error(`Erreur EVA API (${res.status})`);
+    return res.json();
+  }
+  throw new Error('EVA.GG est temporairement indisponible (rate limit). Réessaie dans quelques secondes.');
 }
 
 async function fetchEvaStats(username) {
@@ -77,7 +87,10 @@ async function fetchEvaStats(username) {
 
   const seasonId = player.experience?.seasonId;
 
-  // Appel 2 — stats saison courante (en parallèle c'est déjà séquentiel ici)
+  // Petit délai pour éviter le rate limit entre les deux appels
+  await new Promise(r => setTimeout(r, 300));
+
+  // Appel 2 — stats saison courante
   const seasonData = seasonId
     ? await gql(GQL_SEASON, { username, seasonId })
     : null;
