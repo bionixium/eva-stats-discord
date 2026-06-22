@@ -4,7 +4,7 @@
 // Required KV binding: EVA_KV  (namespace bound as EVA_KV in wrangler.toml / dashboard)
 
 const EVA_GRAPHQL = 'https://api.eva.gg/graphql';
-const SEASON_ID = 8;
+const SEASON_ID = 7;
 
 const GQL_QUERY = `
 query getPublicPlayerByUsername($username: String!, $seasonId: Int, $includeStatistics: Boolean = false) {
@@ -109,11 +109,14 @@ function progressBar(pct, length = 10) {
 
 // ── Embed ─────────────────────────────────────────────────────────────────────
 
+function sep(title) {
+  return { name: `╔═══════════════════╗`, value: `**${title}**`, inline: false };
+}
+
 function buildEmbed(player, username) {
-  const name   = player.user.displayName;
-  const level  = player.experience?.level ?? '?';
-  const lvlPct = player.experience?.levelProgressionPercentage ?? 0;
-  const s      = player.statistics?.data;
+  const name  = player.user.displayName;
+  const level = player.experience?.level ?? '?';
+  const s     = player.statistics?.data;
 
   const games   = s?.gameCount ?? 0;
   const wins    = s?.gameVictoryCount ?? 0;
@@ -126,80 +129,35 @@ function buildEmbed(player, username) {
 
   return {
     embeds: [{
-      author: {
-        name: `${name}  •  Niveau ${level}  •  Saison ${SEASON_ID}`,
-        url: profileUrl,
-      },
-      description: [
-        `**Progression :** ${progressBar(lvlPct)} ${lvlPct.toFixed(1)}%`,
-        `[🔗 Voir le profil public](${profileUrl})`,
-      ].join('\n'),
+      title: `${name}`,
+      url: profileUrl,
+      description: `**Niveau ${level}** · Saison ${SEASON_ID} · [Voir le profil](${profileUrl})`,
       color: 0xF97316,
       fields: [
-        // ── Parties ───────────────────────────────────────────────
-        {
-          name: '🎮 Parties',
-          value: `**${fmt(games)}** totales\n✅ ${fmt(wins)}V · ❌ ${fmt(losses)}D · ➖ ${fmt(draws)}N`,
-          inline: true,
-        },
-        {
-          name: '🏆 Win Rate',
-          value: `**${winRate}%**\n${progressBar(winRate, 8)}`,
-          inline: true,
-        },
-        {
-          name: '⏱️ Temps de jeu',
-          value: `**${formatTime(s?.gameTime)}**`,
-          inline: true,
-        },
-        // ── Combat ────────────────────────────────────────────────
-        {
-          name: '🔫 Kills',
-          value: `**${fmt(s?.kills)}**`,
-          inline: true,
-        },
-        {
-          name: '☠️ Morts',
-          value: `**${fmt(s?.deaths)}**`,
-          inline: true,
-        },
-        {
-          name: '🤝 Assistances',
-          value: `**${fmt(s?.assists)}**`,
-          inline: true,
-        },
-        // ── Ratios ────────────────────────────────────────────────
-        {
-          name: '⚔️ K/D',
-          value: `**${kd}**`,
-          inline: true,
-        },
-        {
-          name: '🔥 Meilleure série',
-          value: `**${fmt(s?.bestKillStreak)}** kills`,
-          inline: true,
-        },
-        {
-          name: '​',
-          value: '​',
-          inline: true,
-        },
-        // ── Distance ──────────────────────────────────────────────
-        {
-          name: '🗺️ Distance totale',
-          value: `**${formatDist(s?.traveledDistance)}**`,
-          inline: true,
-        },
-        {
-          name: '📏 Moy. / partie',
-          value: `**${formatDist(s?.traveledDistanceAverage)}**`,
-          inline: true,
-        },
-        {
-          name: '​',
-          value: '​',
-          inline: true,
-        },
+        // ── PARTIES ───────────────────────────────────────────────
+        { name: '🎮 Parties jouées', value: `**${fmt(games)}**`, inline: true },
+        { name: '✅ Victoires',      value: `**${fmt(wins)}** (${winRate}%)`, inline: true },
+        { name: '❌ Défaites',       value: `**${fmt(losses)}**`, inline: true },
+        { name: '⏱️ Temps de jeu',  value: `**${formatTime(s?.gameTime)}**`, inline: true },
+        { name: '➖ Nuls',           value: `**${fmt(draws)}**`, inline: true },
+        { name: '​',            value: '​', inline: true },
+
+        // ── SÉPARATEUR ────────────────────────────────────────────
+        { name: '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬', value: '⚔️ **COMBAT**', inline: false },
+
+        { name: '🔫 Kills',          value: `**${fmt(s?.kills)}**`,  inline: true },
+        { name: '☠️ Morts',          value: `**${fmt(s?.deaths)}**`, inline: true },
+        { name: '🤝 Assistances',    value: `**${fmt(s?.assists)}**`, inline: true },
+        { name: '⚔️ K/D',            value: `**${kd}**`, inline: true },
+        { name: '🔥 Meilleure série',value: `**${fmt(s?.bestKillStreak)}** kills`, inline: true },
+        { name: '​',            value: '​', inline: true },
+
+        // ── SÉPARATEUR ────────────────────────────────────────────
+        { name: '▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬', value: '🗺️ **DISTANCE**', inline: false },
+
+        { name: '🗺️ Totale',        value: `**${formatDist(s?.traveledDistance)}**`,        inline: true },
+        { name: '📏 Moy. / partie', value: `**${formatDist(s?.traveledDistanceAverage)}**`, inline: true },
+        { name: '​',           value: '​', inline: true },
       ],
       footer: { text: `eva.gg • Saison ${SEASON_ID}` },
       timestamp: new Date().toISOString(),
