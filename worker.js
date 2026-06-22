@@ -116,8 +116,7 @@ function sep(title) {
 function buildEmbed(player, username) {
   const name     = player.user.displayName;
   const level    = player.experience?.level ?? '?';
-  const seasonId = player.experience?.seasonId ?? player.statistics?.seasonId ?? '?';
-  const s        = player.statistics?.data;
+  const s = player.statistics?.data;
 
   const games   = s?.gameCount ?? 0;
   const wins    = s?.gameVictoryCount ?? 0;
@@ -132,7 +131,7 @@ function buildEmbed(player, username) {
     embeds: [{
       title: `${name}`,
       url: profileUrl,
-      description: `**Niveau ${level}** · Saison ${seasonId} · [Voir le profil](${profileUrl})`,
+      description: `**Niveau ${level}** · All Time · [Voir le profil](${profileUrl})`,
       color: 0xF97316,
       fields: [
         // ── PARTIES ───────────────────────────────────────────────
@@ -160,7 +159,7 @@ function buildEmbed(player, username) {
         { name: '📏 Moy. / partie', value: `**${formatDist(s?.traveledDistanceAverage)}**`, inline: true },
         { name: '​',           value: '​', inline: true },
       ],
-      footer: { text: `eva.gg • Saison ${seasonId}` },
+      footer: { text: `eva.gg • All Time` },
       timestamp: new Date().toISOString(),
     }],
   };
