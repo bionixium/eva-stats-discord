@@ -5,6 +5,12 @@
 
 const EVA_GRAPHQL = 'https://api.eva.gg/graphql';
 
+// API publique de la plateforme compétitive (sert à résoudre pseudo -> pseudo#code)
+const COMP_API = 'https://competitive.eva.gg/en_GB/api';
+
+// Crawl : nombre d'équipes traitées par déclenchement du cron (budget 50 sous-requêtes)
+const TEAMS_PER_RUN = 6;
+
 // Saison en cours — à incrémenter au changement de saison EVA.GG
 // Attention : l'API décale le seasonId de +1 par rapport à l'affichage réel.
 const DISPLAY_SEASON = 7;          // numéro affiché aux joueurs
@@ -229,9 +235,65 @@ async function handleStats(body, env) {
   }
 }
 
+// ── Crawl compétitif (cron) ─────────────────────────────────────────────────────
+// Parcourt competitive.eva.gg par lots pour construire la base pseudo -> pseudo#code.
+// Le curseur (offset) est stocké en KV ; à la fin il reboucle pour rester à jour.
+
+async function compJSON(path) {
+  const res = await fetch(`${COMP_API}${path}`, {
+    headers: { 'Accept': 'application/json', 'User-Agent': 'eva-stats-bot/1.0' },
+  });
+  if (!res.ok) throw new Error(`comp ${path}: HTTP ${res.status}`);
+  return res.json();
+}
+
+async function crawlBatch(env) {
+  const offset = parseInt(await env.EVA_KV.get('crawl:offset')) || 0;
+
+  // 1 sous-requête : la page d'équipes
+  const page = await compJSON(`/teams?limit=${TEAMS_PER_RUN}&offset=${offset}`);
+  const teams = page.items || [];
+  const total = page.range?.total ?? 0;
+
+  let learned = 0;
+
+  for (const team of teams) {
+    let members = [];
+    try {
+      members = await compJSON(`/teams/${team.id}/members`);   // 1 sous-requête
+    } catch { continue; }
+
+    const ids = (members || []).map(m => m.playerUser?.id).filter(Boolean);
+
+    for (const id of ids) {
+      try {
+        const p = await compJSON(`/player/${id}`);             // 1 sous-requête / joueur
+        const eva = (p.connectionProviders || []).find(c => c.type === 'eva');
+        if (eva?.identifier) {
+          const key = (eva.username || p.name).toLowerCase();
+          await env.EVA_KV.put(`alias:${key}`, eva.identifier);
+          learned++;
+        }
+      } catch { /* joueur ignoré */ }
+    }
+  }
+
+  // Avance le curseur ; reboucle à 0 quand on a tout parcouru
+  let next = offset + teams.length;
+  if (teams.length === 0 || next >= total) next = 0;
+  await env.EVA_KV.put('crawl:offset', String(next));
+
+  return { offset, next, total, learned };
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 export default {
+  // Déclenché par le Cron Trigger configuré dans Cloudflare
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(crawlBatch(env).catch(err => console.error('crawl:', err)));
+  },
+
   async fetch(request, env) {
     if (request.method !== 'POST') {
       return new Response('Method Not Allowed', { status: 405 });

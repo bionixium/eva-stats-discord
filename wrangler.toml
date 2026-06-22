@@ -1,0 +1,12 @@
+name = "eva-stats-discord"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# Binding KV — remplace l'id par celui de ton namespace EVA_KV
+[[kv_namespaces]]
+binding = "EVA_KV"
+id = "REMPLACE_PAR_TON_KV_NAMESPACE_ID"
+
+# Cron : crawl incrémental du site compétitif (1 lot d'équipes par minute)
+[triggers]
+crons = ["* * * * *"]
