@@ -4,18 +4,18 @@
 // Required KV binding: EVA_KV  (namespace bound as EVA_KV in wrangler.toml / dashboard)
 
 const EVA_GRAPHQL = 'https://api.eva.gg/graphql';
-const SEASON_ID = 7;
 
 const GQL_QUERY = `
-query getPublicPlayerByUsername($username: String!, $seasonId: Int, $includeStatistics: Boolean = false) {
+query getPublicPlayerByUsername($username: String!, $includeStatistics: Boolean = false) {
   getPublicPlayerByUsername(username: $username) {
     user { username displayName }
-    experience(seasonId: $seasonId) { level levelProgressionPercentage }
+    experience { level seasonId }
     ...PlayerStatisticsField @include(if: $includeStatistics)
   }
 }
 fragment PlayerStatisticsField on Player {
-  statistics(seasonId: $seasonId) {
+  statistics {
+    seasonId
     data {
       gameCount
       gameVictoryCount
@@ -70,7 +70,7 @@ async function fetchEvaStats(username) {
     body: JSON.stringify({
       operationName: 'getPublicPlayerByUsername',
       query: GQL_QUERY,
-      variables: { username, seasonId: SEASON_ID, includeStatistics: true },
+      variables: { username, includeStatistics: true },
     }),
   });
 
@@ -114,9 +114,10 @@ function sep(title) {
 }
 
 function buildEmbed(player, username) {
-  const name  = player.user.displayName;
-  const level = player.experience?.level ?? '?';
-  const s     = player.statistics?.data;
+  const name     = player.user.displayName;
+  const level    = player.experience?.level ?? '?';
+  const seasonId = player.experience?.seasonId ?? player.statistics?.seasonId ?? '?';
+  const s        = player.statistics?.data;
 
   const games   = s?.gameCount ?? 0;
   const wins    = s?.gameVictoryCount ?? 0;
@@ -131,7 +132,7 @@ function buildEmbed(player, username) {
     embeds: [{
       title: `${name}`,
       url: profileUrl,
-      description: `**Niveau ${level}** · Saison ${SEASON_ID} · [Voir le profil](${profileUrl})`,
+      description: `**Niveau ${level}** · Saison ${seasonId} · [Voir le profil](${profileUrl})`,
       color: 0xF97316,
       fields: [
         // ── PARTIES ───────────────────────────────────────────────
@@ -159,7 +160,7 @@ function buildEmbed(player, username) {
         { name: '📏 Moy. / partie', value: `**${formatDist(s?.traveledDistanceAverage)}**`, inline: true },
         { name: '​',           value: '​', inline: true },
       ],
-      footer: { text: `eva.gg • Saison ${SEASON_ID}` },
+      footer: { text: `eva.gg • Saison ${seasonId}` },
       timestamp: new Date().toISOString(),
     }],
   };
