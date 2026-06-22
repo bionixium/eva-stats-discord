@@ -6,7 +6,9 @@
 const EVA_GRAPHQL = 'https://api.eva.gg/graphql';
 
 // Saison en cours — à incrémenter au changement de saison EVA.GG
-const CURRENT_SEASON = 7;
+// Attention : l'API décale le seasonId de +1 par rapport à l'affichage réel.
+const DISPLAY_SEASON = 7;          // numéro affiché aux joueurs
+const API_SEASON_ID  = 8;          // seasonId correspondant côté API EVA.GG
 
 // Un seul appel, en passant explicitement la saison en cours pour avoir
 // les vraies stats de la saison (sans paramètre l'API renvoie l'all-time)
@@ -67,7 +69,7 @@ async function fetchEvaStats(username) {
     body: JSON.stringify({
       operationName: 'getPublicPlayerByUsername',
       query: GQL_QUERY,
-      variables: { username, seasonId: CURRENT_SEASON, includeStatistics: true },
+      variables: { username, seasonId: API_SEASON_ID, includeStatistics: true },
     }),
   });
 
@@ -107,7 +109,7 @@ function formatDist(meters) {
 function buildEmbed(player, username) {
   const name     = player.user.displayName;
   const level    = player.experience?.level ?? '?';
-  const seasonId = CURRENT_SEASON;
+  const seasonId = DISPLAY_SEASON;
   const s        = player.statistics?.data;
 
   const games   = s?.gameCount ?? 0;
