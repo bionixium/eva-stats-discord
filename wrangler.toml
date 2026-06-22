@@ -7,6 +7,11 @@ compatibility_date = "2024-01-01"
 binding = "EVA_KV"
 id = "REMPLACE_PAR_TON_KV_NAMESPACE_ID"
 
-# Cron : crawl incrémental du site compétitif (1 lot d'équipes par minute)
+# Cron : le crawl ne RAFRAÎCHIT la base qu'une fois par semaine (cf. maybeCrawl
+# dans worker.js). Le déclenchement reste fréquent (5 min) uniquement parce qu'un
+# seul run ne peut traiter que ~6 équipes (limite de 50 sous-requêtes) : il faut
+# ~30 runs pour boucler la base. Une fois le tour hebdo bouclé, chaque tick ne fait
+# qu'1 lecture KV (0 écriture) jusqu'à la semaine suivante.
+# Écritures/semaine : ~30 (curseur) + nouveaux joueurs + 1 (marqueur) << 1000/jour.
 [triggers]
-crons = ["* * * * *"]
+crons = ["*/5 * * * *"]

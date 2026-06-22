@@ -223,7 +223,11 @@ async function handleStats(body, env) {
     // Mémorise l'alias : displayName (sans code) → username complet
     const display = player.user?.displayName;
     if (display && username.includes('#')) {
-      await env.EVA_KV.put(`alias:${display.toLowerCase()}`, username);
+      const key = `alias:${display.toLowerCase()}`;
+      // Lire avant d'écrire : évite de consommer le quota d'écritures KV
+      // quand l'alias est déjà connu.
+      const existing = await env.EVA_KV.get(key);
+      if (existing !== username) await env.EVA_KV.put(key, username);
     }
 
     return Response.json({ type: 4, data: buildEmbed(player, username) });
@@ -270,9 +274,29 @@ async function crawlBatch(env) {
         const p = await compJSON(`/player/${id}`);             // 1 sous-requête / joueur
         const eva = (p.connectionProviders || []).find(c => c.type === 'eva');
         if (eva?.identifier) {
-          const key = (eva.username || p.name).toLowerCase();
-          await env.EVA_KV.put(`alias:${key}`, eva.identifier);
-          learned++;
+          // Le pseudo peut changer, mais l'id joueur (et le #code) reste stable.
+          // On ancre donc l'identité sur l'id via un index inverse `pid:<id>`
+          // qui mémorise le dernier pseudo connu.
+          const newKey  = (eva.username || p.name).toLowerCase();
+          const prevKey = await env.EVA_KV.get(`pid:${id}`);
+
+          // Changement de pseudo détecté → supprime l'ancienne entrée alias.
+          if (prevKey && prevKey !== newKey) {
+            await env.EVA_KV.delete(`alias:${prevKey}`);
+          }
+
+          // Écrit l'alias seulement s'il est nouveau ou a changé (économise le
+          // quota d'écritures KV : 1000/jour ; les lectures sont à 100 000/jour).
+          const existing = await env.EVA_KV.get(`alias:${newKey}`);
+          if (existing !== eva.identifier) {
+            await env.EVA_KV.put(`alias:${newKey}`, eva.identifier);
+            learned++;
+          }
+
+          // Met à jour l'index inverse seulement si le pseudo a changé.
+          if (prevKey !== newKey) {
+            await env.EVA_KV.put(`pid:${id}`, newKey);
+          }
         }
       } catch { /* joueur ignoré */ }
     }
@@ -286,12 +310,31 @@ async function crawlBatch(env) {
   return { offset, next, total, learned };
 }
 
+// Rafraîchissement HEBDOMADAIRE.
+// Le cron se déclenche souvent (toutes les 5 min) car un seul run ne peut traiter
+// que ~6 équipes (limite de 50 sous-requêtes). Mais on ne crawle qu'une fois par
+// semaine : tant que le tour complet de la base a été bouclé cette semaine, on ne
+// fait rien (juste 1 lecture KV par tick, 0 écriture).
+async function maybeCrawl(env) {
+  const currentWeek = Math.floor(Date.now() / 604800000); // n° de semaine depuis epoch (7j)
+  const doneWeek    = parseInt(await env.EVA_KV.get('crawl:week'));
+
+  if (doneWeek === currentWeek) return; // déjà rafraîchi cette semaine -> veille
+
+  const { next } = await crawlBatch(env);
+
+  // next === 0 -> on a rebouclé à l'offset 0 = tour complet terminé pour la semaine
+  if (next === 0) {
+    await env.EVA_KV.put('crawl:week', String(currentWeek));
+  }
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 export default {
   // Déclenché par le Cron Trigger configuré dans Cloudflare
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(crawlBatch(env).catch(err => console.error('crawl:', err)));
+    ctx.waitUntil(maybeCrawl(env).catch(err => console.error('crawl:', err)));
   },
 
   async fetch(request, env) {
